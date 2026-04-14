@@ -46,7 +46,7 @@ pip install -e .
 For contributor tooling and tests:
 
 ```bash
-pip install -e .[dev]
+pip install -e '.[dev]'
 ```
 
 ## Python quickstart
@@ -74,8 +74,8 @@ prepared = await service.prepare_context(
 )
 ```
 
-A runnable example is in [examples/quickstart.py](/Users/mac/context-bucket-oss/examples/quickstart.py).
-Multi-workflow examples are in [examples/workflows.py](/Users/mac/context-bucket-oss/examples/workflows.py).
+A runnable example is in [examples/quickstart.py]
+Multi-workflow examples are in [examples/workflows.py]
 
 ## CLI quickstart
 
@@ -127,8 +127,3 @@ The retrieval pipeline uses a pluggable embedding interface with a local hashing
 
 The Python library exposes local evaluation helpers for retrieval and assembly quality checks, including saved suites and run comparisons. Local benchmark and behavior reports can be generated at the repo root during testing, but should stay out of commits unless explicitly approved.
 
-## Notes
-
-- See [ARCHITECTURE.md](/Users/mac/context-bucket-oss/ARCHITECTURE.md) for the compact system design.
-- The repo root for this standalone OSS cut is `/Users/mac/context-bucket-oss`.
-- This OSS cut is intended for local CLI and Python library usage rather than a standalone HTTP service.
