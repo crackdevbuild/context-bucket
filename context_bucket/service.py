@@ -191,6 +191,61 @@ class _HashingEmbedder(_BaseEmbedder):
         return [value / norm for value in vector]
 
 
+class _OnnxEmbedder(_BaseEmbedder):
+    backend_name = "onnx_minilm"
+
+    MODEL_ID = "sentence-transformers/all-MiniLM-L6-v2"
+    EMBEDDING_DIM = 384
+
+    def __init__(self, dimensions: int = 384) -> None:
+        self.dimensions = dimensions
+        self._session = None
+        self._tokenizer = None
+
+    def _ensure_loaded(self) -> None:
+        if self._session is not None:
+            return
+        import numpy as np
+        import onnxruntime as ort
+        from huggingface_hub import hf_hub_download
+        from transformers import AutoTokenizer
+        model_path = hf_hub_download(self.MODEL_ID, filename="model.onnx", subfolder="onnx")
+        self._session = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
+        cache_dir = str(Path(model_path).parent.parent)
+        self._tokenizer = AutoTokenizer.from_pretrained(cache_dir)
+        self._np = np
+
+    def embed_terms(self, terms: list[str]) -> list[float]:
+        self._ensure_loaded()
+        np = self._np
+        if not terms:
+            return [0.0] * self.dimensions
+        text = " ".join(terms)
+        inputs = self._tokenizer([text], padding=True, truncation=True, max_length=128, return_tensors="np")
+        input_ids = inputs["input_ids"].astype(np.int64)
+        attention_mask = inputs["attention_mask"].astype(np.int64)
+        token_type_ids = inputs.get("token_type_ids", np.zeros_like(input_ids)).astype(np.int64)
+        outputs = self._session.run(None, {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "token_type_ids": token_type_ids,
+        })
+        token_embeddings = outputs[0]
+        mask = attention_mask.astype(np.float32)
+        mask_expanded = np.expand_dims(mask, -1)
+        sum_embeddings = np.sum(token_embeddings * mask_expanded, axis=1)
+        sum_mask = np.clip(np.sum(mask_expanded, axis=1), a_min=1e-9, a_max=None)
+        mean_pooled = sum_embeddings / sum_mask
+        norms = np.linalg.norm(mean_pooled, axis=1, keepdims=True)
+        norms = np.clip(norms, a_min=1e-9, a_max=None)
+        normalized = (mean_pooled / norms).flatten().tolist()
+        if self.dimensions != self.EMBEDDING_DIM:
+            normalized = normalized[: self.dimensions]
+            norm = math.sqrt(sum(v * v for v in normalized)) or 1.0
+            normalized = [v / norm for v in normalized]
+        return normalized
+
+
 class ContextBucketService:
     def __init__(
         self,
@@ -217,9 +272,11 @@ class ContextBucketService:
         self._embedder = embedder or self._build_embedder()
 
     def _build_embedder(self) -> _BaseEmbedder:
-        backend = getattr(self.settings, "embedding_backend", "local_hashing")
+        backend = getattr(self.settings, "embedding_backend", "onnx_minilm")
         if backend == "local_hashing":
             return _HashingEmbedder(self.settings.embedding_dimensions)
+        if backend == "onnx_minilm":
+            return _OnnxEmbedder(self.settings.embedding_dimensions)
         raise ValueError(f"Unsupported embedding backend: {backend}")
 
     async def store_record(self, payload: ContextBucketRecordCreate) -> ContextBucketRecord | None:

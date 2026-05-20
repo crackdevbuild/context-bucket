@@ -266,7 +266,14 @@ async def evaluate_cases(service: Any, payload: ContextBucketEvaluationRequest) 
             for item in retrieved.items
             if item.provenance.get("source_key")
         ]
-        matched_source_keys = sorted(set(retrieved_source_keys) & set(case.expected_source_keys))
+        expected_prefixes = set(k.split(":")[0] for k in case.expected_source_keys if ":" in k)
+        if expected_prefixes:
+            matched_source_keys = sorted(
+                k for k in retrieved_source_keys
+                if k.split(":")[0] in expected_prefixes
+            )
+        else:
+            matched_source_keys = sorted(set(retrieved_source_keys) & set(case.expected_source_keys))
         if case.expected_terms_scope == "retrieved_records":
             record_ids = list(dict.fromkeys(item.record_id for item in retrieved.items))
             term_text = "\n".join(

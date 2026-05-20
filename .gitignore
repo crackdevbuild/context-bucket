@@ -9,6 +9,8 @@ __pycache__/
 # Root-level generated reports. Keep these local until explicitly approved.
 *-report.md
 *-report.json
+benchmark-*.html
+benchmark-comparison-report.html
 
 # Root-level behavior docs generated during local analysis.
 ARCHITECTURE.md
@@ -17,5 +19,7 @@ behavior-ledger.md
 large-dataset-benchmarking.md
 system-behavior.md
 
-# Local-only test surfaces.
-tests/
+# Benchmark outputs (regenerate locally via benchmark/run_benchmark.py)
+benchmark/results/
+benchmark/cases/
+benchmark/run_*.log

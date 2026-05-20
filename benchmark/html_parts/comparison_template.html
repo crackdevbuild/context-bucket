@@ -1,0 +1,774 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{TITLE}}</title>
+<style>
+{{CSS}}
+</style>
+<!-- Chart.js CDN for interactive visualizations -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+<header>
+  <h1>{{TITLE}}</h1>
+  <div class="subtitle">
+    <span>Generated: <strong>{{TIMESTAMP}}</strong></span>
+    <span>Model Target: <strong>z-ai/glm-5.1</strong></span>
+    <span>Series: <strong>3 (A, B, C)</strong></span>
+    <span>Runs: <strong>150 per variant</strong></span>
+  </div>
+</header>
+
+<!-- Tabs Navigation -->
+<nav class="tabs">
+  <button class="tab-btn active" onclick="switchTab(event, 'structured-tab')">1. Structured Review</button>
+  <button class="tab-btn" onclick="switchTab(event, 'unstructured-tab')">2. Unstructured Review</button>
+  <button class="tab-btn" onclick="switchTab(event, 'analysis-tab')">3. Comparative Analysis</button>
+  <button class="tab-btn" onclick="switchTab(event, 'explorer-tab')">4. Run Explorer</button>
+</nav>
+
+<!-- Tab 1: Structured Review -->
+<section id="structured-tab" class="tab-content active">
+  <div class="dashboard-grid" id="structured-cards"></div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <div class="panel-title">Structured Benchmark - Overall Tier Breakdown</div>
+    </div>
+    <div class="table-wrap">
+      <table id="structured-tier-table">
+        <thead>
+          <tr>
+            <th>Tier</th><th>Runs</th><th>Ret. Mean</th><th>Ret. Min</th><th>Ret. Max</th><th>Asm. Mean</th><th>Asm. Min</th><th>Asm. Max</th><th>Avg Runtime</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <div class="panel-title">Structured Benchmark Insights & Observations</div>
+    </div>
+    <div class="markdown-body">
+      <p>The <strong>Structured Benchmark</strong> evaluates the system when the database contains <em>only records that have <code>structured_data</code> fields</em>. All unstructured text is discarded, and only structured metadata is ingested. Below are the key findings:</p>
+      
+      <h3>1. Sub-Second Query Latencies (Ultra-Fast)</h3>
+      <p>Because the database is extremely small (average <strong>205 records</strong> vs 1250 in unstructured), search indices fit comfortably in memory, and cosine similarity calculations are minimal. Runtimes average a lightning-fast <strong>0.44 seconds per run</strong>, making this setup ideal for real-time systems where database size can be restricted.</p>
+
+      <h3>2. Complete Absence of Database Pruning</h3>
+      <p>With only 205 records, the database is well below the system's hard cap of 432 active records (defined by <code>max_records_per_scope_kind = 24</code> across 18 scope-kind combinations). Consequently, <strong>0 records were pruned</strong> during ingestion. All stored knowledge is preserved.</p>
+
+      <h3>3. Global Scope Limitation (Tiers 7-10)</h3>
+      <p>While local, user, and session scopes perform adequately, the retrieval hit rate on global difficulty tiers (Tiers 7-10) drops to <strong>0.00%</strong>. This occurs because the expected source documents do not contain structured fields and are completely excluded from the dataset. This highlights a critical limitation: structured-only databases fail if documents are not pre-mapped with schemas.</p>
+    </div>
+  </div>
+</section>
+
+<!-- Tab 2: Unstructured Review -->
+<section id="unstructured-tab" class="tab-content">
+  <div class="dashboard-grid" id="unstructured-cards"></div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <div class="panel-title">Unstructured Benchmark - Overall Tier Breakdown</div>
+    </div>
+    <div class="table-wrap">
+      <table id="unstructured-tier-table">
+        <thead>
+          <tr>
+            <th>Tier</th><th>Runs</th><th>Ret. Mean</th><th>Ret. Min</th><th>Ret. Max</th><th>Asm. Mean</th><th>Asm. Min</th><th>Asm. Max</th><th>Avg Runtime</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <div class="panel-title">Unstructured Benchmark Insights & Observations</div>
+    </div>
+    <div class="markdown-body">
+      <p>The <strong>Unstructured Benchmark</strong> evaluates the system on the full document corpus (~1,250 records), but with all <code>structured_data</code> and <code>data_schema</code> attributes stripped. Retrieval must rely purely on semantic text chunking and embedding vector similarity. Below are the key findings:</p>
+
+      <h3>1. Aggressive LRU Pruning Bottleneck (High Loss)</h3>
+      <p>The most critical discovery is the impact of the database capacity limit: <code>max_records_per_scope_kind = 24</code>. In unstructured runs, the database receives 1250 records. Because the limit allows only 432 active records across scopes, <strong>818 records (65.4%) are pruned on import</strong>. Older records are constantly evicted. Since the expected files are frequently pruned before queries are executed, the retrieval hit rate is artificially capped at a low <strong>19.04%</strong>.</p>
+
+      <h3>2. Massively Slow Runtimes</h3>
+      <p>Runtimes average <strong>1,317.81 seconds (~22 minutes) per run</strong>, representing a total wall time of over 55 hours. This occurs because the benchmark setup instantiates a brand new database instance, reads the 1250-record JSONL, splits the text into chunks, and computes ONNX embeddings from scratch for <em>every single run</em> of the 150 runs. This massive embedding computation overhead dominates execution times.</p>
+
+      <h3>3. Global Scope Retrieval</h3>
+      <p>Unlike the structured variant, unstructured runs maintain a non-zero retrieval hit rate on Tiers 7-10 (global scope). Since all records are imported initially, the documents are available for indexing. However, because of the 65.4% pruning rate, many are evicted, limiting the overall hit rate.</p>
+    </div>
+  </div>
+</section>
+
+<!-- Tab 3: Comparative Analysis -->
+<section id="analysis-tab" class="tab-content">
+  <!-- Side-by-Side Summary Table -->
+  <div class="panel">
+    <div class="panel-header">
+      <div class="panel-title">Analytical Variant Comparison Matrix</div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Metric / Attribute</th>
+            <th class="badge-structured">Structured Variant</th>
+            <th class="badge-unstructured">Unstructured Variant</th>
+            <th>Default Baseline</th>
+          </tr>
+        </thead>
+        <tbody style="font-size:0.9rem">
+          <tr>
+            <td><strong>Overall Retrieval Hit Rate (Mean)</strong></td>
+            <td style="color:var(--green);font-weight:700">17.25%</td>
+            <td style="color:var(--green);font-weight:700">19.04%</td>
+            <td style="color:var(--text-muted)">0.86%</td>
+          </tr>
+          <tr>
+            <td><strong>Overall Assembly Hit Rate (Mean)</strong></td>
+            <td style="color:var(--yellow);font-weight:700">8.73%</td>
+            <td style="color:var(--yellow);font-weight:700">12.26%</td>
+            <td style="color:var(--green);font-weight:700">59.26%</td>
+          </tr>
+          <tr>
+            <td><strong>Average Runtime per Run</strong></td>
+            <td style="color:var(--green);font-weight:700">0.44s</td>
+            <td style="color:var(--red);font-weight:700">1,317.81s (22.0 min)</td>
+            <td style="color:var(--yellow);font-weight:700">371.06s (6.2 min)</td>
+          </tr>
+          <tr>
+            <td><strong>Total Execution Time (150 runs)</strong></td>
+            <td style="color:var(--green);font-weight:700">~66 seconds</td>
+            <td style="color:var(--red);font-weight:700">~55.0 hours</td>
+            <td style="color:var(--yellow);font-weight:700">~15.5 hours</td>
+          </tr>
+          <tr>
+            <td><strong>Total Dataset Records</strong></td>
+            <td>205 to 237 records</td>
+            <td>1,250 to 1,450 records</td>
+            <td>1,000 to 1,450 records</td>
+          </tr>
+          <tr>
+            <td><strong>Database Active Capacity</strong></td>
+            <td>Max 432 records</td>
+            <td>Max 432 records</td>
+            <td>Max 432 records</td>
+          </tr>
+          <tr>
+            <td><strong>Pruned Records (Avg per run)</strong></td>
+            <td style="color:var(--green);font-weight:700">0 (0.0% pruned)</td>
+            <td style="color:var(--red);font-weight:700">818 (65.4% pruned)</td>
+            <td style="color:var(--yellow);font-weight:700">568 (56.8% pruned)</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Interactive Charts Grid -->
+  <div class="charts-grid">
+    <div class="chart-wrapper">
+      <div class="chart-title">Retrieval Hit Rate by Difficulty Tier</div>
+      <div class="chart-container">
+        <canvas id="retrievalChart"></canvas>
+      </div>
+    </div>
+    <div class="chart-wrapper">
+      <div class="chart-title">Assembly Hit Rate by Difficulty Tier</div>
+      <div class="chart-container">
+        <canvas id="assemblyChart"></canvas>
+      </div>
+    </div>
+    <div class="chart-wrapper" style="grid-column: span 2">
+      <div class="chart-title">Average Runtime by Difficulty Tier (Logarithmic Scale)</div>
+      <div class="chart-container" style="height: 350px">
+        <canvas id="runtimeChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Database Ingestion & Pruning Breakdown -->
+  <div class="panel">
+    <div class="panel-header">
+      <div class="panel-title">Database Pruning Analysis by Dataset</div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Variant</th>
+            <th>Dataset Filename</th>
+            <th>Imported Records</th>
+            <th>Active Records</th>
+            <th>Pruned Records</th>
+            <th>Pruning Rate (%)</th>
+            <th>Pruning Status</th>
+          </tr>
+        </thead>
+        <tbody id="pruning-tbody">
+          <!-- Populated dynamically via JS -->
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Detailed Analysis & Technical Explanations -->
+  <div class="panel">
+    <div class="panel-header">
+      <div class="panel-title">Deep-Dive Comparative Analysis</div>
+    </div>
+    <div class="markdown-body">
+      <h3>1. The Pruning Bottleneck (Why hit rates are low)</h3>
+      <p>A central finding across both variants is the low retrieval hit rate (~17% to 19%). This is directly caused by the database LRU eviction algorithm. The service limits the number of active records to <code>max_records_per_scope_kind = 24</code>. When a dataset exceeds 432 total records (across scopes and kinds), older records are deleted to make space. In unstructured and default variants, this wipes out 56% to 65% of all imported documents, meaning the system evicts expected source records before the search is executed.</p>
+
+      <h3>2. Structured vs. Unstructured Tradeoffs</h3>
+      <ul>
+        <li><strong>Structured Variant</strong> suffers zero pruning since it only contains 205 records (well below the 432 limit). However, it completely lacks coverage for global scopes (Tiers 7-10), leading to a 0.0% hit rate on those queries. It is incredibly fast (0.44s) but lacks recall density.</li>
+        <li><strong>Unstructured Variant</strong> retains full semantic coverage but is severely bottlenecked by pruning (65.4% evicted) and exhibits catastrophic runtimes (22 minutes per run) due to embedding-generation overhead.</li>
+        <li><strong>Default Baseline</strong> was evaluated on an older set of cases with high term overlaps, yielding a high assembly hit rate (59%) but nearly zero retrieval hits (0.86%), which suggests an embedding/indexing configuration mismatch in those earlier cached runs.</li>
+      </ul>
+
+      <div class="alert alert-info">
+        <div class="alert-title">Recommendations for Production Configuration</div>
+        <ul>
+          <li><strong>Increase Capacity Limit</strong>: Set <code>CONTEXT_BUCKET_MAX_RECORDS_PER_SCOPE_KIND</code> to at least <code>128</code> or higher for larger document corpora to prevent LRU eviction.</li>
+          <li><strong>Persistent Indexing</strong>: Avoid re-chunking and re-embedding files on every query/session instantiation. Implementing a persistent vector store (such as SQLite or FAISS) would reduce query latencies from 22 minutes to under 50ms.</li>
+          <li><strong>Implement Hybrid Search</strong>: Leverage structured fields for metadata filtering combined with semantic vectors for text matching to combine structured speed with unstructured recall.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Tab 4: Run Explorer -->
+<section id="explorer-tab" class="tab-content">
+  <div class="panel">
+    <div class="panel-header">
+      <div class="panel-title">Benchmark Run Search & Audit logs</div>
+    </div>
+    
+    <div class="controls">
+      <button class="active" onclick="filterExplorer(this, 'all')">All Series</button>
+      <button onclick="filterExplorer(this, 'series_a')">Series A</button>
+      <button onclick="filterExplorer(this, 'series_b')">Series B</button>
+      <button onclick="filterExplorer(this, 'series_c')">Series C</button>
+      
+      <select id="explorer-variant-filter" onchange="applyFilters()">
+        <option value="all">All Variants</option>
+        <option value="structured">Structured</option>
+        <option value="unstructured">Unstructured</option>
+        <option value="default">Default Baseline</option>
+      </select>
+
+      <select id="explorer-tier-filter" onchange="applyFilters()">
+        <option value="all">All Difficulty Tiers</option>
+      </select>
+
+      <input type="text" id="explorer-search" placeholder="Search queries..." oninput="applyFilters()">
+    </div>
+
+    <div class="table-wrap">
+      <table id="explorer-table">
+        <thead>
+          <tr>
+            <th onclick="sortExplorer('variant')">Variant</th>
+            <th onclick="sortExplorer('series')">Series</th>
+            <th onclick="sortExplorer('run')">Run #</th>
+            <th onclick="sortExplorer('tier')">Tier</th>
+            <th>Dataset</th>
+            <th onclick="sortExplorer('imported')">Imported</th>
+            <th onclick="sortExplorer('cases')">Cases</th>
+            <th onclick="sortExplorer('ret_hits')">Ret. Hits</th>
+            <th onclick="sortExplorer('ret_rate')">Ret. Rate</th>
+            <th onclick="sortExplorer('asm_hits')">Asm. Hits</th>
+            <th onclick="sortExplorer('asm_rate')">Asm. Rate</th>
+            <th onclick="sortExplorer('runtime')">Runtime (s)</th>
+          </tr>
+        </thead>
+        <tbody id="explorer-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<footer>
+  Context Bucket Comparative Benchmark Report &middot; Generated 2026 &middot; Google DeepMind Advanced Agentic Coding
+</footer>
+
+<script>
+// Data injected by python
+const STRUCTURED_RUNS = {{STRUCTURED_RUNS_JSON}};
+const UNSTRUCTURED_RUNS = {{UNSTRUCTURED_RUNS_JSON}};
+const DEFAULT_RUNS = {{DEFAULT_RUNS_JSON}};
+
+const STRUCTURED_SUMMARY = {{STRUCTURED_SUMMARY_JSON}};
+const UNSTRUCTURED_SUMMARY = {{UNSTRUCTURED_SUMMARY_JSON}};
+const DEFAULT_SUMMARY = {{DEFAULT_SUMMARY_JSON}};
+
+const STRUCTURED_TIER_STATS = {{STRUCTURED_TIER_STATS_JSON}};
+const UNSTRUCTURED_TIER_STATS = {{UNSTRUCTURED_TIER_STATS_JSON}};
+const DEFAULT_TIER_STATS = {{DEFAULT_TIER_STATS_JSON}};
+
+const DIFFICULTY_TIERS = {{TIERS_JSON}};
+const TIER_COLORS = {{TIER_COLORS_JSON}};
+const DATASETS_STATS = {{DATASETS_STATS_JSON}};
+
+// Tab switcher
+function switchTab(evt, tabId) {
+  document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+  
+  evt.currentTarget.classList.add('active');
+  document.getElementById(tabId).classList.add('active');
+}
+
+// Helpers
+function rateColor(v) {
+  if (v === null || v === undefined) return 'var(--text-dark)';
+  const h = Math.round(120 * Math.max(0, Math.min(1, v)));
+  return 'hsl(' + h + ',70%,45%)';
+}
+
+function rateCell(v) {
+  if (v === null || v === undefined) return '<span style="color:var(--text-muted)">&mdash;</span>';
+  return '<span class="rate-cell" style="color:' + rateColor(v) + '">' + (v * 100).toFixed(1) + '%</span>';
+}
+
+function boolIcon(v) {
+  return v ? '<span class="bool-yes">&#10003;</span>' : '<span class="bool-no">&#10007;</span>';
+}
+
+function tierBadge(name) {
+  const c = TIER_COLORS[name] || '#64748b';
+  return '<span class="tier-badge" style="background:' + c + '">' + name.replace(/_/g,' ') + '</span>';
+}
+
+function esc(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function arrStr(a) {
+  if (!a || !a.length) return '<span style="color:var(--text-muted)">&mdash;</span>';
+  return a.map(x => esc(x)).join(', ');
+}
+
+// Populate Summary Cards
+function renderCards(summary, targetId, note) {
+  const d = document.getElementById(targetId);
+  const cards = [
+    {l:'Total Benchmark Runs', v:summary.total_runs, s:note},
+    {l:'Successful Runs', v:summary.successful, s:summary.failed + ' failures', color:summary.failed > 0 ? 'var(--red)' : 'var(--green)'},
+    {l:'Retrieval Hit Rate', v:(summary.retrieval_mean * 100).toFixed(1) + '%', s:'median: '+(summary.retrieval_median * 100).toFixed(1)+'%', color:rateColor(summary.retrieval_mean)},
+    {l:'Assembly Hit Rate', v:(summary.assembly_mean * 100).toFixed(1) + '%', s:'median: '+(summary.assembly_median * 100).toFixed(1)+'%', color:rateColor(summary.assembly_mean)},
+    {l:'Avg Runtime / Run', v:summary.runtime_mean >= 60 ? (summary.runtime_mean/60).toFixed(1)+'m' : summary.runtime_mean.toFixed(1)+'s', s:'median: '+summary.runtime_median.toFixed(0)+'s'},
+    {l:'Total Wall Time', v:summary.total_wall_hours+'h', s:Math.round(summary.total_wall_seconds/60)+' min'}
+  ];
+  let html = '';
+  for (let c of cards) {
+    html += '<div class="card"><div class="label">' + c.l + '</div><div class="value" style="color:' + (c.color||'var(--text)') + '">' + c.v + '</div><div class="sub">' + c.s + '</div></div>';
+  }
+  d.innerHTML = html;
+}
+
+renderCards(STRUCTURED_SUMMARY, 'structured-cards', 'Structured variant runs');
+renderCards(UNSTRUCTURED_SUMMARY, 'unstructured-cards', 'Unstructured variant runs');
+
+// Populate Tier Tables
+function renderTierTable(stats, tableId) {
+  const tb = document.querySelector('#' + tableId + ' tbody');
+  let html = '';
+  for (let t of DIFFICULTY_TIERS) {
+    const s = stats[t] || {};
+    html += '<tr><td>' + tierBadge(t) + '</td><td>' + (s.count||0) + '</td>' +
+      '<td>' + rateCell(s.retrieval_mean) + '</td><td>' + rateCell(s.retrieval_min) + '</td><td>' + rateCell(s.retrieval_max) + '</td>' +
+      '<td>' + rateCell(s.assembly_mean) + '</td><td>' + rateCell(s.assembly_min) + '</td><td>' + rateCell(s.assembly_max) + '</td>' +
+      '<td>' + (s.runtime_mean||0).toFixed(1) + 's</td></tr>';
+  }
+  tb.innerHTML = html;
+}
+
+renderTierTable(STRUCTURED_TIER_STATS, 'structured-tier-table');
+renderTierTable(UNSTRUCTURED_TIER_STATS, 'unstructured-tier-table');
+
+// Populate Pruning Breakdown Table
+(function() {
+  const tb = document.getElementById('pruning-tbody');
+  let html = '';
+  for (let item of DATASETS_STATS) {
+    let pruneClass = 'pruning-none';
+    let pruneStatus = 'No Pruning';
+    if (item.pruned > 500) {
+      pruneClass = 'pruning-high';
+      pruneStatus = 'Critical Eviction';
+    } else if (item.pruned > 0) {
+      pruneClass = 'pruning-medium';
+      pruneStatus = 'Moderate Eviction';
+    }
+    
+    html += '<tr>' +
+      '<td style="text-transform:uppercase;font-weight:700">' + item.variant + '</td>' +
+      '<td><code>' + item.filename + '</code></td>' +
+      '<td style="font-variant-numeric:tabular-nums">' + item.imported + '</td>' +
+      '<td style="font-variant-numeric:tabular-nums">' + item.active + '</td>' +
+      '<td style="font-variant-numeric:tabular-nums">' + item.pruned + '</td>' +
+      '<td style="font-variant-numeric:tabular-nums;font-weight:700">' + item.pruned_pct.toFixed(1) + '%</td>' +
+      '<td><span class="badge ' + pruneClass + '">' + pruneStatus + '</span></td>' +
+      '</tr>';
+  }
+  tb.innerHTML = html;
+})();
+
+// Populate Tier dropdown in Explorer
+(function() {
+  const sel = document.getElementById('explorer-tier-filter');
+  for (let t of DIFFICULTY_TIERS) {
+    const opt = document.createElement('option');
+    opt.value = t;
+    opt.textContent = t.replace(/_/g,' ');
+    sel.appendChild(opt);
+  }
+})();
+
+// Combine all runs for explorer
+const ALL_RUNS = [];
+for (let r of STRUCTURED_RUNS) { ALL_RUNS.push({...r, variant: 'structured'}); }
+for (let r of UNSTRUCTURED_RUNS) { ALL_RUNS.push({...r, variant: 'unstructured'}); }
+for (let r of DEFAULT_RUNS) { ALL_RUNS.push({...r, variant: 'default'}); }
+
+let explorerSeriesFilter = 'all';
+let explorerSortCol = 'tier';
+let explorerSortAsc = true;
+
+function filterExplorer(btn, series) {
+  document.querySelectorAll('#explorer-tab .controls button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  explorerSeriesFilter = series;
+  applyFilters();
+}
+
+function applyFilters() {
+  const variant = document.getElementById('explorer-variant-filter').value;
+  const tier = document.getElementById('explorer-tier-filter').value;
+  const query = document.getElementById('explorer-search').value.toLowerCase();
+  
+  let runs = ALL_RUNS;
+  
+  if (explorerSeriesFilter !== 'all') {
+    runs = runs.filter(r => r.series === explorerSeriesFilter);
+  }
+  if (variant !== 'all') {
+    runs = runs.filter(r => r.variant === variant);
+  }
+  if (tier !== 'all') {
+    runs = runs.filter(r => r.tier === tier);
+  }
+  if (query) {
+    runs = runs.filter(r => {
+      const results = r.evaluation_results || [];
+      for (let e of results) {
+        if (e.query_text && e.query_text.toLowerCase().includes(query)) return true;
+      }
+      return (r.suite_name || '').toLowerCase().includes(query);
+    });
+  }
+  
+  // Sort
+  if (explorerSortCol) {
+    const col = explorerSortCol;
+    const asc = explorerSortAsc ? 1 : -1;
+    runs.sort((a, b) => {
+      let va = a[col];
+      let vb = b[col];
+      
+      // Special mappings for sorting
+      if (col === 'imported') {
+        va = a.imported_records || 0;
+        vb = b.imported_records || 0;
+      } else if (col === 'cases') {
+        va = a.total_cases || 0;
+        vb = b.total_cases || 0;
+      } else if (col === 'ret_hits') {
+        va = a.retrieval_hits || 0;
+        vb = b.retrieval_hits || 0;
+      } else if (col === 'ret_rate') {
+        va = a.retrieval_hit_rate || 0;
+        vb = b.retrieval_hit_rate || 0;
+      } else if (col === 'asm_hits') {
+        va = a.assembly_hits || 0;
+        vb = b.assembly_hits || 0;
+      } else if (col === 'asm_rate') {
+        va = a.assembly_hit_rate || 0;
+        vb = b.assembly_hit_rate || 0;
+      } else if (col === 'runtime') {
+        va = a.runtime_seconds || 0;
+        vb = b.runtime_seconds || 0;
+      }
+      
+      if (typeof va === 'string') return asc * va.localeCompare(vb);
+      if (va == null) va = -1;
+      if (vb == null) vb = -1;
+      return asc * (va - vb);
+    });
+  }
+  
+  renderExplorerTable(runs);
+}
+
+function sortExplorer(col) {
+  if (explorerSortCol === col) {
+    explorerSortAsc = !explorerSortAsc;
+  } else {
+    explorerSortCol = col;
+    explorerSortAsc = true;
+  }
+  
+  document.querySelectorAll('#explorer-table th').forEach(th => {
+    th.classList.remove('sort-asc', 'sort-desc');
+  });
+  
+  applyFilters();
+}
+
+function renderExplorerTable(runs) {
+  const tbody = document.getElementById('explorer-tbody');
+  let html = '';
+  
+  for (let r of runs) {
+    const rid = r.variant + '_' + r.series + '_' + r.run;
+    const vBadge = r.variant === 'structured' ? 'badge-structured' : (r.variant === 'unstructured' ? 'badge-unstructured' : '');
+    
+    html += '<tr class="row-master" onclick="toggleDetail(\'' + rid + '\')">' +
+      '<td><span class="badge badge-variant ' + vBadge + '">' + r.variant + '</span></td>' +
+      '<td>' + r.series.replace('series_','').toUpperCase() + '</td>' +
+      '<td>' + r.run + '</td>' +
+      '<td>' + tierBadge(r.tier) + '</td>' +
+      '<td style="font-size:0.7rem"><code>' + esc(r.dataset) + '</code></td>' +
+      '<td style="font-variant-numeric:tabular-nums">' + (r.imported_records||0) + '</td>' +
+      '<td style="font-variant-numeric:tabular-nums">' + (r.total_cases||0) + '</td>' +
+      '<td style="font-variant-numeric:tabular-nums">' + (r.retrieval_hits||0) + '</td>' +
+      '<td>' + rateCell(r.retrieval_hit_rate) + '</td>' +
+      '<td style="font-variant-numeric:tabular-nums">' + (r.assembly_hits||0) + '</td>' +
+      '<td>' + rateCell(r.assembly_hit_rate) + '</td>' +
+      '<td style="font-variant-numeric:tabular-nums">' + (r.runtime_seconds||0).toFixed(1) + 's</td>' +
+      '</tr>' +
+      '<tr class="detail-row" id="detail-' + rid + '">' +
+      '<td colspan="12"><div class="detail-inner" id="detail-inner-' + rid + '"></div></td>' +
+      '</tr>';
+  }
+  
+  tbody.innerHTML = html;
+}
+
+function toggleDetail(rid) {
+  const row = document.getElementById('detail-' + rid);
+  const inner = document.getElementById('detail-inner-' + rid);
+  
+  if (row.classList.contains('open')) {
+    row.classList.remove('open');
+    return;
+  }
+  
+  row.classList.add('open');
+  if (inner.getAttribute('data-loaded')) return;
+  
+  // Find run
+  const parts = rid.split('_');
+  const variant = parts[0];
+  const series = parts[1] + '_' + parts[2];
+  const runNum = parseInt(parts[3]);
+  
+  let r = null;
+  const pool = variant === 'structured' ? STRUCTURED_RUNS : (variant === 'unstructured' ? UNSTRUCTURED_RUNS : DEFAULT_RUNS);
+  for (let run of pool) {
+    if (run.series === series && run.run === runNum) {
+      r = run;
+      break;
+    }
+  }
+  
+  if (!r) return;
+  inner.setAttribute('data-loaded', '1');
+  
+  let html = '';
+  const stats = r.stats || {};
+  const rstats = r.retrieval_stats || {};
+  
+  html += '<h4>Database Stats & Records</h4>' +
+    '<div class="stats-grid">' +
+    '<div class="stat-item"><span class="sk">Total Imported:</span> <span class="sv">' + (stats.record_count + (stats.state||{}).pruned_records_total || 0) + '</span></div>' +
+    '<div class="stat-item"><span class="sk">Active Records:</span> <span class="sv">' + (stats.record_count || 0) + '</span></div>' +
+    '<div class="stat-item"><span class="sk">Evicted/Pruned:</span> <span class="sv" style="color:' + ((stats.state||{}).pruned_records_total > 0 ? 'var(--red)' : 'var(--green)') + '">' + ((stats.state||{}).pruned_records_total || 0) + '</span></div>' +
+    '<div class="stat-item"><span class="sk">Avg Ret. Count:</span> <span class="sv">' + (rstats.mean_retrieval_count || 0) + '</span></div>' +
+    '<div class="stat-item"><span class="sk">Mean Asm. Tokens:</span> <span class="sv">' + (rstats.mean_assembly_tokens || 0) + '</span></div>' +
+    '<div class="stat-item"><span class="sk">Run ID:</span> <span class="sv" style="font-family:monospace;font-size:0.65rem">' + r.run_id + '</span></div>' +
+    '</div>';
+    
+  const evalResults = r.evaluation_results || [];
+  const caseDefs = r.case_definitions || [];
+  
+  if (evalResults.length > 0) {
+    html += '<h4>Per-Case Evaluation Audit (' + evalResults.length + ' cases)</h4>' +
+      '<div class="table-wrap">' +
+      '<table>' +
+      '<thead>' +
+      '<tr>' +
+      '<th>Case Name</th><th>Query</th><th>Incl. User</th><th>Incl. Global</th>' +
+      '<th>Expected Keys</th><th>Expected Terms</th>' +
+      '<th>Ret. Hit</th><th>Asm. Hit</th><th>Ret. Count</th><th>Asm. Tokens</th>' +
+      '<th>Retrieved Keys</th><th>Matched Keys</th><th>Matched Terms</th>' +
+      '</tr>' +
+      '</thead>' +
+      '<tbody>';
+      
+    for (let i = 0; i < evalResults.length; i++) {
+      const ev = evalResults[i];
+      const cd = caseDefs[i] || {};
+      
+      html += '<tr>' +
+        '<td style="font-size:0.7rem;font-weight:700">' + esc(ev.name) + '</td>' +
+        '<td class="case-query">' + esc(ev.query_text) + '</td>' +
+        '<td>' + boolIcon(cd.include_user_scope) + '</td>' +
+        '<td>' + boolIcon(cd.include_global_scope) + '</td>' +
+        '<td class="keys-list">' + arrStr(cd.expected_source_keys) + '</td>' +
+        '<td class="keys-list">' + arrStr(cd.expected_terms) + '</td>' +
+        '<td>' + boolIcon(ev.retrieval_hit) + '</td>' +
+        '<td>' + boolIcon(ev.assembly_hit) + '</td>' +
+        '<td style="font-variant-numeric:tabular-nums">' + (ev.retrieval_count||0) + '</td>' +
+        '<td style="font-variant-numeric:tabular-nums">' + (ev.assembly_token_count_estimate||0) + '</td>' +
+        '<td class="keys-list">' + arrStr(ev.retrieved_source_keys) + '</td>' +
+        '<td class="keys-list">' + arrStr(ev.matched_expected_source_keys) + '</td>' +
+        '<td class="keys-list">' + arrStr(ev.matched_expected_terms) + '</td>' +
+        '</tr>';
+    }
+    
+    html += '</tbody></table></div>';
+  }
+  
+  inner.innerHTML = html;
+}
+
+applyFilters();
+
+// Setup Chart.js Charts
+document.addEventListener('DOMContentLoaded', function() {
+  const ctxRet = document.getElementById('retrievalChart').getContext('2d');
+  const ctxAsm = document.getElementById('assemblyChart').getContext('2d');
+  const ctxRt = document.getElementById('runtimeChart').getContext('2d');
+  
+  const labels = DIFFICULTY_TIERS.map(t => t.replace(/_/g, ' '));
+  
+  // Data extraction
+  const getTierMean = (stats, key) => DIFFICULTY_TIERS.map(t => (stats[t] ? stats[t][key] * 100 : 0));
+  const getTierRtMean = (stats) => DIFFICULTY_TIERS.map(t => (stats[t] ? stats[t].runtime_mean : 0));
+  
+  const structRet = getTierMean(STRUCTURED_TIER_STATS, 'retrieval_mean');
+  const unstructRet = getTierMean(UNSTRUCTURED_TIER_STATS, 'retrieval_mean');
+  const defaultRet = getTierMean(DEFAULT_TIER_STATS, 'retrieval_mean');
+  
+  const structAsm = getTierMean(STRUCTURED_TIER_STATS, 'assembly_mean');
+  const unstructAsm = getTierMean(UNSTRUCTURED_TIER_STATS, 'assembly_mean');
+  const defaultAsm = getTierMean(DEFAULT_TIER_STATS, 'assembly_mean');
+  
+  const structRt = getTierRtMean(STRUCTURED_TIER_STATS);
+  const unstructRt = getTierRtMean(UNSTRUCTURED_TIER_STATS);
+  const defaultRt = getTierRtMean(DEFAULT_TIER_STATS);
+  
+  const chartOptions = (yTitle, unit) => ({
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { position: 'bottom', labels: { color: '#94a3b8', font: { family: 'Inter' } } }
+    },
+    scales: {
+      x: { grid: { color: 'rgba(255, 255, 255, 0.05)' }, ticks: { color: '#94a3b8', font: { family: 'Inter' } } },
+      y: {
+        grid: { color: 'rgba(255, 255, 255, 0.05)' },
+        ticks: {
+          color: '#94a3b8',
+          font: { family: 'Inter' },
+          callback: (value) => value + unit
+        },
+        title: { display: true, text: yTitle, color: '#94a3b8' }
+      }
+    }
+  });
+
+  // Retrieval Chart
+  new Chart(ctxRet, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [
+        { label: 'Structured', data: structRet, borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.1)', tension: 0.2, borderWidth: 3 },
+        { label: 'Unstructured', data: unstructRet, borderColor: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.1)', tension: 0.2, borderWidth: 3 },
+        { label: 'Default', data: defaultRet, borderColor: '#64748b', borderDash: [5, 5], tension: 0.2 }
+      ]
+    },
+    options: chartOptions('Retrieval Hit Rate', '%')
+  });
+
+  // Assembly Chart
+  new Chart(ctxAsm, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [
+        { label: 'Structured', data: structAsm, borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.1)', tension: 0.2, borderWidth: 3 },
+        { label: 'Unstructured', data: unstructAsm, borderColor: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.1)', tension: 0.2, borderWidth: 3 },
+        { label: 'Default', data: defaultAsm, borderColor: '#64748b', borderDash: [5, 5], tension: 0.2 }
+      ]
+    },
+    options: chartOptions('Assembly Hit Rate', '%')
+  });
+
+  // Runtime Chart (Logarithmic)
+  new Chart(ctxRt, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [
+        { label: 'Structured', data: structRt, backgroundColor: '#10b981', barThickness: 15 },
+        { label: 'Unstructured', data: unstructRt, backgroundColor: '#ef4444', barThickness: 15 },
+        { label: 'Default', data: defaultRt, backgroundColor: '#64748b', barThickness: 15 }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom', labels: { color: '#94a3b8' } }
+      },
+      scales: {
+        x: { grid: { color: 'rgba(255, 255, 255, 0.05)' }, ticks: { color: '#94a3b8' } },
+        y: {
+          type: 'logarithmic',
+          grid: { color: 'rgba(255, 255, 255, 0.05)' },
+          ticks: {
+            color: '#94a3b8',
+            callback: function(value) {
+              if (value === 0.1) return '0.1s';
+              if (value === 1) return '1s';
+              if (value === 10) return '10s';
+              if (value === 100) return '100s';
+              if (value === 1000) return '1000s';
+              return null;
+            }
+          },
+          title: { display: true, text: 'Execution Time (Seconds, Log scale)', color: '#94a3b8' }
+        }
+      }
+    }
+  });
+});
+</script>
+</body>
+</html>

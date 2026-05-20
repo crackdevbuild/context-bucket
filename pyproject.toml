@@ -9,8 +9,12 @@ description = "Local-first context storage and retrieval for AI applications."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-  "pydantic>=2.8,<3",
-  "typer>=0.12,<1",
+    "pydantic>=2.8,<3",
+    "typer>=0.12,<1",
+    "onnxruntime>=1.17",
+    "transformers>=4.38",
+    "huggingface-hub>=0.20",
+    "numpy>=1.26",
 ]
 
 [project.optional-dependencies]

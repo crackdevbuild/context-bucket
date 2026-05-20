@@ -25,8 +25,8 @@ class Settings:
     decay_start_pct: float = 0.5
     training_export_enabled: bool = True
     index_backend: str = "json"
-    embedding_backend: str = "local_hashing"
-    embedding_dimensions: int = 64
+    embedding_backend: str = "onnx_minilm"
+    embedding_dimensions: int = 384
     semantic_candidate_multiplier: int = 4
     lexical_candidate_multiplier: int = 4
     semantic_score_weight: float = 0.6

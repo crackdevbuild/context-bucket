@@ -364,8 +364,14 @@ def benchmark_jsonl(
     suite_name: str = "benchmark",
     limit: int = 6,
     token_budget: int = 1200,
+    embedding_backend: str = typer.Option("onnx_minilm", help="Embedding backend: onnx_minilm or local_hashing."),
+    embedding_dimensions: int = typer.Option(384, help="Embedding vector dimensions."),
 ) -> None:
-    benchmark_service = ContextBucketService(Settings(data_root=str(data_root)))
+    benchmark_service = ContextBucketService(Settings(
+        data_root=str(data_root),
+        embedding_backend=embedding_backend,
+        embedding_dimensions=embedding_dimensions,
+    ))
     try:
         result = asyncio.run(
             run_jsonl_benchmark(

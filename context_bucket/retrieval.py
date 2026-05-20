@@ -16,7 +16,7 @@ from context_bucket.models import (
 )
 
 
-TOKEN_RE = re.compile(r"[a-z0-9]{4,}", re.IGNORECASE)
+TOKEN_RE = re.compile(r"[a-z0-9]{2,}", re.IGNORECASE)
 SEMANTIC_EXPANSIONS: dict[str, set[str]] = {
     "brief": {"concise", "short"},
     "concise": {"brief", "short"},

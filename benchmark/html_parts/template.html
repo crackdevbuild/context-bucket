@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{TITLE}}</title>
+<style>
+{{CSS}}
+</style>
+</head>
+<body>
+
+<h1>{{TITLE}}</h1>
+<p style="color:var(--text2);font-size:0.85rem;">Generated {{TIMESTAMP}} &middot; Model: z-ai/glm-5.1 &middot; 3 series &times; 50 runs &middot; 10 difficulty tiers &middot; Variant: {{VARIANT}}</p>
+
+<div id="dashboard" class="dashboard"></div>
+
+<h2>Difficulty Tier Configuration</h2>
+<div class="table-wrap">
+<table id="tier-config-table"><thead><tr>
+<th>Tier</th><th>Run Range</th><th>Token Budget</th><th>Cases (min-max)</th><th>Include User</th><th>Include Global</th><th>Terms Scope</th>
+</tr></thead><tbody></tbody></table>
+</div>
+
+<h2>Overall Tier Breakdown</h2>
+<div class="table-wrap">
+<table id="overall-tier-table"><thead><tr>
+<th>Tier</th><th>Runs</th><th>Ret. Mean</th><th>Ret. Min</th><th>Ret. Max</th><th>Asm. Mean</th><th>Asm. Min</th><th>Asm. Max</th><th>Runtime</th>
+</tr></thead><tbody></tbody></table>
+</div>
+
+<h2>Cross-Series Comparison</h2>
+<div class="table-wrap">
+<table id="cross-series-table"><thead><tr>
+<th>Tier</th><th>A Ret.</th><th>A Asm.</th><th>B Ret.</th><th>B Asm.</th><th>C Ret.</th><th>C Asm.</th>
+</tr></thead><tbody></tbody></table>
+</div>
+
+<h2>Assembly Hit Rate Heatmap</h2>
+<div id="heatmap" class="heatmap"></div>
+
+<h2>Per-Series Detail</h2>
+<div id="per-series-section"></div>
+
+<h2>Benchmark Datasets</h2>
+<div id="datasets-section"></div>
+
+<h2>Embedding & Retrieval Pipeline</h2>
+<div id="pipeline-section"></div>
+
+<h2>All 150 Runs</h2>
+<div class="controls" id="master-controls">
+  <button class="active" data-filter="all">All</button>
+  <button data-filter="series_a">Series A</button>
+  <button data-filter="series_b">Series B</button>
+  <button data-filter="series_c">Series C</button>
+  <select id="tier-filter"><option value="all">All Tiers</option></select>
+  <input type="text" id="search-input" placeholder="Search queries...">
+</div>
+<div class="table-wrap">
+<table id="master-table"><thead><tr>
+<th data-col="series">Series</th>
+<th data-col="run">Run #</th>
+<th data-col="tier">Tier</th>
+<th data-col="dataset">Dataset</th>
+<th data-col="imported_records">Imported</th>
+<th data-col="total_cases">Cases</th>
+<th data-col="retrieval_hits">Ret. Hits</th>
+<th data-col="retrieval_hit_rate">Ret. Rate</th>
+<th data-col="assembly_hits">Asm. Hits</th>
+<th data-col="assembly_hit_rate">Asm. Rate</th>
+<th data-col="runtime_seconds">Runtime (s)</th>
+<th data-col="elapsed_wall">Wall (s)</th>
+</tr></thead><tbody id="master-tbody"></tbody></table>
+</div>
+
+<footer style="margin-top:3rem;padding:1rem 0;border-top:1px solid var(--surface2);color:var(--text2);font-size:0.75rem;">
+  Context Bucket 150-Run Benchmark &middot; {{TIMESTAMP_SHORT}} &middot; For cross-AI-model comparison
+</footer>
+
+<script>
+const RUNS = {{RUNS_JSON}};
+const TIER_CONFIG = {{TIER_CONFIG_JSON}};
+const TIER_COLORS = {{TIER_COLORS_JSON}};
+const SUMMARY = {{SUMMARY_JSON}};
+const TIER_STATS = {{TIER_STATS_JSON}};
+const SERIES_TIER_STATS = {{SERIES_TIER_STATS_JSON}};
+const TIERS = {{TIERS_JSON}};
+const SERIES_LABELS = {{SERIES_LABELS_JSON}};
+const DATASETS = {{DATASETS_JSON}};
+const PIPELINE = {{PIPELINE_JSON}};
+
+function rateColor(v) {
+  if (v === null || v === undefined) return 'var(--surface2)';
+  var h = Math.round(120 * Math.max(0, Math.min(1, v)));
+  return 'hsl(' + h + ',70%,45%)';
+}
+function rateCell(v, fmt) {
+  fmt = fmt || 3;
+  if (v === null || v === undefined) return '<span style="color:var(--text2)">&mdash;</span>';
+  return '<span class="rate-cell" style="color:' + rateColor(v) + '">' + v.toFixed(fmt) + '</span>';
+}
+function boolIcon(v) {
+  return v ? '<span class="bool-yes">&#10003;</span>' : '<span class="bool-no">&#10007;</span>';
+}
+function tierBadge(name) {
+  var c = TIER_COLORS[name] || '#6b7280';
+  return '<span class="tier-badge" style="background:' + c + '">' + name.replace(/_/g,' ') + '</span>';
+}
+function esc(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function arrStr(a) {
+  if (!a || !a.length) return '<span style="color:var(--text2)">&mdash;</span>';
+  return a.map(function(x){ return esc(x); }).join(', ');
+}
+
+// Dashboard
+(function() {
+  var d = document.getElementById('dashboard');
+  var cards = [
+    {l:'Total Runs', v:SUMMARY.total_runs, s:'all series combined'},
+    {l:'Successful', v:SUMMARY.successful, s:'0 failures', color:'var(--green)'},
+    {l:'Ret. Rate (mean)', v:SUMMARY.retrieval_mean.toFixed(3), s:'median: '+SUMMARY.retrieval_median.toFixed(3)},
+    {l:'Asm. Rate (mean)', v:SUMMARY.assembly_mean.toFixed(3), s:'median: '+SUMMARY.assembly_median.toFixed(3), color:rateColor(SUMMARY.assembly_mean)},
+    {l:'Runtime (mean)', v:SUMMARY.runtime_mean.toFixed(0)+'s', s:'median: '+SUMMARY.runtime_median.toFixed(0)+'s'},
+    {l:'Total Wall Time', v:SUMMARY.total_wall_hours+'h', s:Math.round(SUMMARY.total_wall_seconds/60)+' min'}
+  ];
+  var html = '';
+  for (var i = 0; i < cards.length; i++) {
+    var c = cards[i];
+    html += '<div class="card"><div class="label">' + c.l + '</div><div class="value" style="color:' + (c.color||'var(--text)') + '">' + c.v + '</div><div class="sub">' + c.s + '</div></div>';
+  }
+  d.innerHTML = html;
+})();
+
+// Tier config table
+(function() {
+  var tb = document.querySelector('#tier-config-table tbody');
+  var html = '';
+  for (var i = 0; i < TIERS.length; i++) {
+    var t = TIERS[i], c = TIER_CONFIG[t];
+    html += '<tr><td>' + tierBadge(t) + '</td><td>' + c.runs[0] + '&ndash;' + c.runs[1] + '</td><td>' + c.token_budget + '</td><td>' + c.num_cases[0] + '&ndash;' + c.num_cases[1] + '</td><td>' + boolIcon(c.include_user) + '</td><td>' + boolIcon(c.include_global) + '</td><td><code>' + c.terms_scope + '</code></td></tr>';
+  }
+  tb.innerHTML = html;
+})();
+
+// Overall tier table
+(function() {
+  var tb = document.querySelector('#overall-tier-table tbody');
+  var html = '';
+  for (var i = 0; i < TIERS.length; i++) {
+    var t = TIERS[i], s = TIER_STATS[t] || {};
+    html += '<tr><td>' + tierBadge(t) + '</td><td>' + (s.count||0) + '</td>' +
+      '<td>' + rateCell(s.retrieval_mean) + '</td><td>' + rateCell(s.retrieval_min) + '</td><td>' + rateCell(s.retrieval_max) + '</td>' +
+      '<td>' + rateCell(s.assembly_mean) + '</td><td>' + rateCell(s.assembly_min) + '</td><td>' + rateCell(s.assembly_max) + '</td>' +
+      '<td>' + (s.runtime_mean||0).toFixed(0) + 's</td></tr>';
+  }
+  tb.innerHTML = html;
+})();
+
+// Cross-series table
+(function() {
+  var tb = document.querySelector('#cross-series-table tbody');
+  var html = '';
+  for (var i = 0; i < TIERS.length; i++) {
+    var t = TIERS[i];
+    var a = (SERIES_TIER_STATS.series_a || {})[t] || {};
+    var b = (SERIES_TIER_STATS.series_b || {})[t] || {};
+    var c = (SERIES_TIER_STATS.series_c || {})[t] || {};
+    html += '<tr><td>' + tierBadge(t) + '</td>' +
+      '<td>' + rateCell(a.retrieval_mean) + '</td><td>' + rateCell(a.assembly_mean) + '</td>' +
+      '<td>' + rateCell(b.retrieval_mean) + '</td><td>' + rateCell(b.assembly_mean) + '</td>' +
+      '<td>' + rateCell(c.retrieval_mean) + '</td><td>' + rateCell(c.assembly_mean) + '</td></tr>';
+  }
+  tb.innerHTML = html;
+})();
+
+// Heatmap
+(function() {
+  var hm = document.getElementById('heatmap');
+  hm.style.gridTemplateColumns = '120px repeat(3, 1fr)';
+  hm.style.gridTemplateRows = '28px repeat(10, 36px)';
+  var html = '<div></div>';
+  var cols = ['A - Shuffled','B - Medical','C - Adversarial'];
+  for (var j = 0; j < cols.length; j++) html += '<div class="hm-col-label">' + cols[j] + '</div>';
+  for (var i = 0; i < TIERS.length; i++) {
+    var t = TIERS[i];
+    html += '<div class="hm-label">' + t.replace(/_/g,' ') + '</div>';
+    var keys = ['series_a','series_b','series_c'];
+    for (var j = 0; j < keys.length; j++) {
+      var st = (SERIES_TIER_STATS[keys[j]]||{})[t] || {};
+      var v = st.assembly_mean != null ? st.assembly_mean : 0;
+      html += '<div class="hm-cell" style="background:' + rateColor(v) + '" title="' + keys[j] + ' ' + t + ': ' + v.toFixed(3) + '">' + v.toFixed(2) + '</div>';
+    }
+  }
+  hm.innerHTML = html;
+})();
+
+// Per-series sections
+(function() {
+  var sec = document.getElementById('per-series-section');
+  var html = '';
+  var skeys = ['series_a','series_b','series_c'];
+  for (var si = 0; si < skeys.length; si++) {
+    var s = skeys[si];
+    html += '<h3>' + SERIES_LABELS[s] + '</h3><div class="table-wrap"><table><thead><tr>';
+    html += '<th>Tier</th><th>Runs</th><th>Ret. Mean</th><th>Ret. Min</th><th>Ret. Max</th><th>Asm. Mean</th><th>Asm. Min</th><th>Asm. Max</th><th>Runtime</th>';
+    html += '</tr></thead><tbody>';
+    for (var i = 0; i < TIERS.length; i++) {
+      var t = TIERS[i], st = (SERIES_TIER_STATS[s]||{})[t] || {};
+      html += '<tr><td>' + tierBadge(t) + '</td><td>' + (st.count||0) + '</td>' +
+        '<td>' + rateCell(st.retrieval_mean) + '</td><td>' + rateCell(st.retrieval_min) + '</td><td>' + rateCell(st.retrieval_max) + '</td>' +
+        '<td>' + rateCell(st.assembly_mean) + '</td><td>' + rateCell(st.assembly_min) + '</td><td>' + rateCell(st.assembly_max) + '</td>' +
+        '<td>' + (st.runtime_mean||0).toFixed(0) + 's</td></tr>';
+    }
+    html += '</tbody></table></div>';
+  }
+  sec.innerHTML = html;
+  })();
+
+// Datasets section
+(function() {
+  var sec = document.getElementById('datasets-section');
+  var html = '';
+  for (var d = 0; d < DATASETS.length; d++) {
+    var ds = DATASETS[d];
+    html += '<div class="dataset-card">';
+    html += '<div class="dataset-header">';
+    html += '<span class="dataset-label">' + esc(ds.label) + '</span>';
+    html += '<code class="dataset-filename">' + esc(ds.filename) + '</code>';
+    html += '</div>';
+    html += '<div class="dataset-meta">Used in: <strong>' + esc(ds.used_in) + '</strong></div>';
+    html += '<div class="dataset-stats-grid">';
+    html += '<div class="ds-stat"><span class="ds-stat-label">Records</span><span class="ds-stat-value">' + ds.record_count + '</span></div>';
+    html += '<div class="ds-stat"><span class="ds-stat-label">Source Prefixes</span><span class="ds-stat-value">' + ds.source_prefix_count + '</span></div>';
+    html += '<div class="ds-stat"><span class="ds-stat-label">Avg Text Len</span><span class="ds-stat-value">' + ds.avg_text_length + ' chars</span></div>';
+    html += '<div class="ds-stat"><span class="ds-stat-label">Median Text Len</span><span class="ds-stat-value">' + ds.median_text_length + ' chars</span></div>';
+    html += '<div class="ds-stat"><span class="ds-stat-label">Min Text Len</span><span class="ds-stat-value">' + ds.min_text_length + '</span></div>';
+    html += '<div class="ds-stat"><span class="ds-stat-label">Max Text Len</span><span class="ds-stat-value">' + ds.max_text_length + '</span></div>';
+    if (ds.has_structured_data_count > 0) {
+      html += '<div class="ds-stat"><span class="ds-stat-label">Has structured_data</span><span class="ds-stat-value">' + ds.has_structured_data_count + ' records</span></div>';
+    }
+    html += '</div>';
+    // Kinds
+    html += '<div class="dataset-detail"><span class="ds-detail-label">Kinds:</span> ';
+    var kindKeys = Object.keys(ds.kinds);
+    for (var k = 0; k < kindKeys.length; k++) {
+      html += '<span class="ds-tag">' + esc(kindKeys[k]) + ' (' + ds.kinds[kindKeys[k]] + ')</span>';
+    }
+    html += '</div>';
+    // Scopes
+    html += '<div class="dataset-detail"><span class="ds-detail-label">Scopes:</span> ';
+    var scopeKeys = Object.keys(ds.scopes);
+    for (var k = 0; k < scopeKeys.length; k++) {
+      html += '<span class="ds-tag">' + esc(scopeKeys[k]) + ' (' + ds.scopes[scopeKeys[k]] + ')</span>';
+    }
+    html += '</div>';
+    // Source prefixes
+    html += '<div class="dataset-detail"><span class="ds-detail-label">Source Prefixes:</span> ';
+    var prefixes = ds.source_prefixes || [];
+    for (var k = 0; k < prefixes.length; k++) {
+      html += '<span class="ds-tag ds-tag-prefix">' + esc(prefixes[k]) + '</span>';
+    }
+    html += '</div>';
+    // Fields
+    html += '<div class="dataset-detail"><span class="ds-detail-label">Fields:</span> ';
+    var fields = ds.fields || [];
+    for (var k = 0; k < fields.length; k++) {
+      html += '<span class="ds-tag ds-tag-field">' + esc(fields[k]) + '</span>';
+    }
+    html += '</div>';
+    html += '</div>';
+  }
+  sec.innerHTML = html;
+})();
+
+// Pipeline section
+(function() {
+  var sec = document.getElementById('pipeline-section');
+  var P = PIPELINE;
+  var html = '';
+
+  // Architecture flow
+  html += '<div class="pipeline-card">';
+  html += '<div class="pipeline-title">Architecture Flow</div>';
+  html += '<div class="pipeline-flow">';
+  var steps = [
+    {n:'Ingest',d:'Record + chunk text'},
+    {n:'Chunk',d:'900 chars, 120 overlap'},
+    {n:'Embed',d:'ONNX MiniLM → 384-dim'},
+    {n:'Index',d:'JSON/SQLite + chunk embeddings'},
+    {n:'Query',d:'Embed query → cosine sim'},
+    {n:'Dual Pool',d:'Semantic ×4 + Lexical ×4'},
+    {n:'Rerank',d:'Weighted score merge'},
+    {n:'Dedup',d:'Jaccard ≥ 0.82'},
+    {n:'Assemble',d:'Token budget → context'}
+  ];
+  for (var i = 0; i < steps.length; i++) {
+    var s = steps[i];
+    html += '<div class="flow-step"><div class="flow-name">' + s.n + '</div><div class="flow-desc">' + s.d + '</div></div>';
+    if (i < steps.length - 1) html += '<div class="flow-arrow">&rarr;</div>';
+  }
+  html += '</div></div>';
+
+  // Two-column: Embedding Config | Text Processing
+  html += '<div class="pipeline-grid">';
+
+  // Embedding Config
+  html += '<div class="pipeline-card">';
+  html += '<div class="pipeline-title">Embedding Configuration</div>';
+  var emb = P.embedding || {};
+  var embItems = [
+    ['Backend', emb.backend],
+    ['Dimensions', emb.dimensions],
+    ['Normalization', emb.normalization],
+  ];
+  html += '<div class="pipeline-kv">';
+  for (var i = 0; i < embItems.length; i++) {
+    html += '<div class="pkv-row"><span class="pkv-k">' + esc(embItems[i][0]) + '</span><span class="pkv-v">' + esc(embItems[i][1]) + '</span></div>';
+  }
+  html += '<div class="pkv-row pkv-row-wide"><span class="pkv-k">Method</span><span class="pkv-v pkv-v-long">' + esc(emb.method) + '</span></div>';
+  html += '</div></div>';
+
+  // Text Processing
+  html += '<div class="pipeline-card">';
+  html += '<div class="pipeline-title">Text Processing Pipeline</div>';
+  var tp = P.text_processing || {};
+  var tpItems = [
+    ['Lexical Tokenization', tp.lexical_tokenization],
+    ['Stemming', tp.stemming],
+    ['Char N-grams', tp.char_ngrams],
+  ];
+  html += '<div class="pipeline-kv">';
+  for (var i = 0; i < tpItems.length; i++) {
+    html += '<div class="pkv-row"><span class="pkv-k">' + esc(tpItems[i][0]) + '</span><span class="pkv-v">' + esc(tpItems[i][1]) + '</span></div>';
+  }
+  html += '</div>';
+  // Synonym expansion
+  var syn = tp.synonym_expansion || {};
+  var synKeys = Object.keys(syn);
+  if (synKeys.length) {
+    html += '<div class="pipeline-subtitle">Synonym Expansions</div>';
+    html += '<div class="synonym-grid">';
+    for (var i = 0; i < synKeys.length; i++) {
+      html += '<div class="syn-item"><span class="syn-key">' + esc(synKeys[i]) + '</span> &rarr; ';
+      var vals = syn[synKeys[i]];
+      for (var j = 0; j < vals.length; j++) {
+        if (j > 0) html += ', ';
+        html += '<span class="syn-val">' + esc(vals[j]) + '</span>';
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+  }
+  html += '</div>';
+  html += '</div>';
+
+  // Two-column: Chunking Config | Retrieval Strategy
+  html += '<div class="pipeline-grid">';
+
+  // Chunking
+  html += '<div class="pipeline-card">';
+  html += '<div class="pipeline-title">Chunking Configuration</div>';
+  var ch = P.chunking || {};
+  var chItems = [
+    ['Chunk Size', ch.chunk_chars + ' chars'],
+    ['Overlap', ch.chunk_overlap_chars + ' chars'],
+  ];
+  html += '<div class="pipeline-kv">';
+  for (var i = 0; i < chItems.length; i++) {
+    html += '<div class="pkv-row"><span class="pkv-k">' + esc(chItems[i][0]) + '</span><span class="pkv-v">' + esc(chItems[i][1]) + '</span></div>';
+  }
+  html += '</div>';
+  html += '<div class="pipeline-subtitle">Per-Chunk Fields</div>';
+  html += '<div class="chunk-fields">';
+  var cf = ch.per_chunk_fields || [];
+  for (var i = 0; i < cf.length; i++) {
+    html += '<span class="ds-tag ds-tag-field">' + esc(cf[i]) + '</span>';
+  }
+  html += '</div></div>';
+
+  // Retrieval Strategy
+  html += '<div class="pipeline-card">';
+  html += '<div class="pipeline-title">Retrieval Strategy</div>';
+  var ret = P.retrieval || {};
+  var retItems = [
+    ['Strategy', ret.strategy],
+    ['Query Top-K', ret.query_top_k],
+    ['Semantic Multiplier', '×' + ret.semantic_candidate_multiplier],
+    ['Lexical Multiplier', '×' + ret.lexical_candidate_multiplier],
+    ['Pool Selection', ret.pool_selection],
+    ['Search Type', ret.search_type],
+  ];
+  html += '<div class="pipeline-kv">';
+  for (var i = 0; i < retItems.length; i++) {
+    html += '<div class="pkv-row"><span class="pkv-k">' + esc(retItems[i][0]) + '</span><span class="pkv-v">' + esc(retItems[i][1]) + '</span></div>';
+  }
+  html += '</div></div>';
+  html += '</div>';
+
+  // Scoring Weights Table
+  html += '<div class="pipeline-card">';
+  html += '<div class="pipeline-title">Rerank Scoring Weights</div>';
+  html += '<div class="pipeline-desc">final_score = semantic×0.60 + lexical×0.25 + keyword×0.08 + metadata + rank_bonus + scope_bonus + age_decay</div>';
+  var sw = P.scoring_weights || {};
+  html += '<div class="table-wrap"><table class="scoring-table"><thead><tr><th>Component</th><th>Weight / Value</th><th>Description</th></tr></thead><tbody>';
+  var scoringRows = [
+    ['Semantic Score', sw.semantic_score, 'Cosine similarity between query & chunk embeddings'],
+    ['Lexical Score', sw.lexical_score, 'Set overlap (harmonic mean) between query & chunk tokens'],
+    ['Keyword Bonus', sw.keyword_bonus, 'Title/tag/source_key/exact match bonus'],
+    ['Metadata Bonus', sw.metadata_bonus, 'Source key or tag filter match bonus'],
+    ['Rank: Research', sw.record_rank_bonus_research, 'research_report, research_finding kinds'],
+    ['Rank: Decision', sw.record_rank_bonus_decision, 'decision_outcome, topic_pattern, user_profile_note'],
+    ['Scope: Session', sw.scope_priority_session, 'Session-scoped records'],
+    ['Scope: User', sw.scope_priority_user, 'User-scoped records'],
+    ['Scope: Global', sw.scope_priority_global, 'Global-scoped records'],
+    ['Age Decay', sw.age_decay_range, 'From +0.05 (fresh) to -0.25 (stale), linear after decay_start_pct'],
+  ];
+  for (var i = 0; i < scoringRows.length; i++) {
+    var r = scoringRows[i];
+    html += '<tr><td class="scoring-comp">' + esc(r[0]) + '</td><td class="scoring-val">' + r[1] + '</td><td class="scoring-desc">' + esc(r[2]) + '</td></tr>';
+  }
+  html += '</tbody></table></div></div>';
+
+  // Two-column: Dedup | Index Storage | Assembly
+  html += '<div class="pipeline-grid">';
+
+  // Dedup
+  html += '<div class="pipeline-card">';
+  html += '<div class="pipeline-title">Dedup / Compression</div>';
+  var dd = P.dedup || {};
+  html += '<div class="pipeline-kv">';
+  html += '<div class="pkv-row"><span class="pkv-k">Method</span><span class="pkv-v">' + esc(dd.method) + '</span></div>';
+  html += '<div class="pkv-row"><span class="pkv-k">Threshold</span><span class="pkv-v">' + dd.threshold + '</span></div>';
+  html += '</div></div>';
+
+  // Index Storage
+  html += '<div class="pipeline-card">';
+  html += '<div class="pipeline-title">Index Storage</div>';
+  var idx = P.index_storage || {};
+  var idxItems = [
+    ['Record Backend', idx.record_backend],
+    ['Index Backend', idx.index_backend],
+    ['Record Index', idx.record_index],
+    ['Chunk Index', idx.chunk_index],
+    ['Alternate', idx.alternate_backend],
+  ];
+  html += '<div class="pipeline-kv">';
+  for (var i = 0; i < idxItems.length; i++) {
+    html += '<div class="pkv-row"><span class="pkv-k">' + esc(idxItems[i][0]) + '</span><span class="pkv-v">' + esc(idxItems[i][1]) + '</span></div>';
+  }
+  html += '</div></div>';
+
+  // Assembly
+  html += '<div class="pipeline-card">';
+  html += '<div class="pipeline-title">Assembly Pipeline</div>';
+  var asm = P.assembly || {};
+  html += '<div class="pipeline-kv">';
+  html += '<div class="pkv-row pkv-row-wide"><span class="pkv-k">Flow</span><span class="pkv-v">' + esc(asm.flow) + '</span></div>';
+  html += '<div class="pkv-row"><span class="pkv-k">Modes</span><span class="pkv-v">';
+  var modes = asm.modes || [];
+  for (var i = 0; i < modes.length; i++) {
+    if (i > 0) html += ', ';
+    html += '<span class="ds-tag">' + esc(modes[i]) + '</span>';
+  }
+  html += '</span></div></div></div>';
+  html += '</div>';
+
+  sec.innerHTML = html;
+})();
+
+// Tier filter dropdown
+(function() {
+  var sel = document.getElementById('tier-filter');
+  for (var i = 0; i < TIERS.length; i++) {
+    var opt = document.createElement('option');
+    opt.value = TIERS[i]; opt.textContent = TIERS[i].replace(/_/g,' ');
+    sel.appendChild(opt);
+  }
+})();
+
+// Master table rendering
+var currentFilter = 'all';
+var currentTier = 'all';
+var currentSearch = '';
+var sortCol = null;
+var sortAsc = true;
+
+function getFilteredRuns() {
+  var runs = RUNS;
+  if (currentFilter !== 'all') runs = runs.filter(function(r){ return r.series === currentFilter; });
+  if (currentTier !== 'all') runs = runs.filter(function(r){ return r.tier === currentTier; });
+  if (currentSearch) {
+    var q = currentSearch.toLowerCase();
+    runs = runs.filter(function(r){
+      var evts = r.evaluation_results || [];
+      for (var i = 0; i < evts.length; i++) {
+        if (evts[i].query_text && evts[i].query_text.toLowerCase().indexOf(q) >= 0) return true;
+      }
+      return (r.suite_name || '').toLowerCase().indexOf(q) >= 0;
+    });
+  }
+  if (sortCol) {
+    var col = sortCol;
+    var asc = sortAsc ? 1 : -1;
+    runs = runs.slice().sort(function(a,b) {
+      var va = a[col], vb = b[col];
+      if (typeof va === 'string') return asc * va.localeCompare(vb);
+      if (va == null) va = -1; if (vb == null) vb = -1;
+      return asc * (va - vb);
+    });
+  }
+  return runs;
+}
+
+function renderMasterTable() {
+  var tbody = document.getElementById('master-tbody');
+  var runs = getFilteredRuns();
+  var html = '';
+  for (var i = 0; i < runs.length; i++) {
+    var r = runs[i];
+    var rid = r.series + '_' + r.run;
+    html += '<tr class="row-master" data-rid="' + rid + '" onclick="toggleDetail(\'' + rid + '\')">';
+    html += '<td>' + r.series.replace('series_','') + '</td>';
+    html += '<td>' + r.run + '</td>';
+    html += '<td>' + tierBadge(r.tier) + '</td>';
+    html += '<td style="font-size:0.7rem">' + esc(r.dataset) + '</td>';
+    html += '<td>' + (r.imported_records||0) + '</td>';
+    html += '<td>' + (r.total_cases||0) + '</td>';
+    html += '<td>' + (r.retrieval_hits||0) + '</td>';
+    html += '<td>' + rateCell(r.retrieval_hit_rate) + '</td>';
+    html += '<td>' + (r.assembly_hits||0) + '</td>';
+    html += '<td>' + rateCell(r.assembly_hit_rate) + '</td>';
+    html += '<td>' + (r.runtime_seconds||0).toFixed(1) + '</td>';
+    html += '<td>' + (r.elapsed_wall||0).toFixed(1) + '</td>';
+    html += '</tr>';
+    html += '<tr class="detail-row" id="detail-' + rid + '"><td colspan="12"><div class="detail-inner" id="detail-inner-' + rid + '"></div></td></tr>';
+  }
+  tbody.innerHTML = html;
+}
+
+function toggleDetail(rid) {
+  var row = document.getElementById('detail-' + rid);
+  var inner = document.getElementById('detail-inner-' + rid);
+  if (row.classList.contains('open')) {
+    row.classList.remove('open');
+    return;
+  }
+  row.classList.add('open');
+  if (inner.getAttribute('data-loaded')) return;
+  var r = null;
+  for (var i = 0; i < RUNS.length; i++) {
+    if (RUNS[i].series + '_' + RUNS[i].run === rid) { r = RUNS[i]; break; }
+  }
+  if (!r) return;
+  inner.setAttribute('data-loaded','1');
+  var html = '';
+
+    // Stats sub-grid
+    var stats = r.stats || {};
+    var rstats = r.retrieval_stats || {};
+    html += '<h4>Run Stats</h4><div class="stats-grid">';
+    var statsItems = [
+    ['Record Count', stats.record_count],
+    ['Pruned Total', (stats.state||{}).pruned_records_total],
+    ['Training Files', stats.training_file_count],
+    ['Run ID', r.run_id],
+    ];
+    if (rstats.total_cases) {
+      statsItems.push(['Mean Ret. Count', rstats.mean_retrieval_count]);
+      statsItems.push(['Min Ret. Count', rstats.min_retrieval_count]);
+      statsItems.push(['Max Ret. Count', rstats.max_retrieval_count]);
+      statsItems.push(['Mean Asm. Tokens', rstats.mean_assembly_tokens]);
+      statsItems.push(['Total Asm. Tokens', rstats.total_assembly_tokens]);
+    }
+  if (stats.records_by_kind) {
+    for (var k in stats.records_by_kind) {
+      statsItems.push(['Kind: ' + k, stats.records_by_kind[k]]);
+    }
+  }
+  if (stats.records_by_scope) {
+    for (var k in stats.records_by_scope) {
+      statsItems.push(['Scope: ' + k, stats.records_by_scope[k]]);
+    }
+  }
+  for (var i = 0; i < statsItems.length; i++) {
+    html += '<div class="stat-item"><span class="sk">' + esc(statsItems[i][0]) + ':</span> <span class="sv">' + esc(statsItems[i][1]) + '</span></div>';
+  }
+  html += '</div>';
+
+  // Per-case table
+  var evalResults = r.evaluation_results || [];
+  var caseDefs = r.case_definitions || [];
+  if (evalResults.length > 0) {
+    html += '<h4>Per-Case Results (' + evalResults.length + ' cases)</h4>';
+    html += '<div class="table-wrap"><table><thead><tr>';
+    html += '<th>Case</th><th>Query</th><th>Token Budget</th><th>Scope</th><th>Incl. User</th><th>Incl. Global</th>';
+    html += '<th>Expected Keys</th><th>Expected Terms</th>';
+    html += '<th>Ret. Hit</th><th>Asm. Hit</th><th>Ret. Count</th><th>Asm. Tokens</th>';
+    html += '<th>Retrieved Keys</th><th>Matched Keys</th><th>Matched Terms</th><th>Audit ID</th>';
+    html += '</tr></thead><tbody>';
+    for (var i = 0; i < evalResults.length; i++) {
+      var ev = evalResults[i];
+      var cd = caseDefs[i] || {};
+      html += '<tr>';
+      html += '<td style="font-size:0.65rem">' + esc(ev.name) + '</td>';
+      html += '<td class="case-query">' + esc(ev.query_text) + '</td>';
+      html += '<td>' + (cd.token_budget || '') + '</td>';
+      html += '<td><code style="font-size:0.6rem">' + esc(ev.expected_terms_scope) + '</code></td>';
+      html += '<td>' + boolIcon(cd.include_user_scope) + '</td>';
+      html += '<td>' + boolIcon(cd.include_global_scope) + '</td>';
+      html += '<td class="keys-list">' + arrStr(cd.expected_source_keys) + '</td>';
+      html += '<td class="keys-list">' + arrStr(cd.expected_terms) + '</td>';
+      html += '<td>' + boolIcon(ev.retrieval_hit) + '</td>';
+      html += '<td>' + boolIcon(ev.assembly_hit) + '</td>';
+      html += '<td>' + (ev.retrieval_count||0) + '</td>';
+      html += '<td>' + (ev.assembly_token_count_estimate||0) + '</td>';
+      html += '<td class="keys-list">' + arrStr(ev.retrieved_source_keys) + '</td>';
+      html += '<td class="keys-list">' + arrStr(ev.matched_expected_source_keys) + '</td>';
+      html += '<td class="keys-list">' + arrStr(ev.matched_expected_terms) + '</td>';
+      html += '<td style="font-size:0.6rem;color:var(--text2)">' + esc(ev.audit_id) + '</td>';
+      html += '</tr>';
+    }
+    html += '</tbody></table></div>';
+  }
+  inner.innerHTML = html;
+}
+
+// Controls
+document.querySelectorAll('#master-controls button').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    document.querySelectorAll('#master-controls button').forEach(function(b){ b.classList.remove('active'); });
+    btn.classList.add('active');
+    currentFilter = btn.getAttribute('data-filter');
+    renderMasterTable();
+  });
+});
+document.getElementById('tier-filter').addEventListener('change', function(e) {
+  currentTier = e.target.value;
+  renderMasterTable();
+});
+document.getElementById('search-input').addEventListener('input', function(e) {
+  currentSearch = e.target.value;
+  renderMasterTable();
+});
+
+// Sort headers
+document.querySelectorAll('#master-table th[data-col]').forEach(function(th) {
+  th.addEventListener('click', function() {
+    var col = th.getAttribute('data-col');
+    if (sortCol === col) { sortAsc = !sortAsc; } else { sortCol = col; sortAsc = true; }
+    document.querySelectorAll('#master-table th').forEach(function(h){ h.classList.remove('sort-asc','sort-desc'); });
+    th.classList.add(sortAsc ? 'sort-asc' : 'sort-desc');
+    renderMasterTable();
+  });
+  var span = document.createElement('span');
+  span.className = 'sort-arrow';
+  th.appendChild(span);
+});
+
+renderMasterTable();
+</script>
+</body>
+</html>
