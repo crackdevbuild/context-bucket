@@ -2,9 +2,7 @@
 
 **Local-first context storage, hybrid retrieval, and workflow mediation for AI applications.**
 
-Context Bucket is a zero-dependency-on-external-services memory layer that ingests text and structured data, indexes it with pluggable embedding backends, retrieves relevant chunks via a hybrid semantic + lexical + keyword scoring pipeline, and assembles token-budgeted context blocks ready for downstream model consumption. All data lives on local disk or user-controlled SQLite — no cloud vector databases, no API keys, no network calls.
-
-![Benchmark Comparison Dashboard](docs/images/dashboard_comparison.png)
+Context Bucket is a zero-dependency-on-external-services memory layer that ingests text and structured data, indexes it with pluggable embedding backends, retrieves relevant chunks via a hybrid semantic + lexical + keyword scoring pipeline, and assembles token-budgeted context blocks ready for downstream model consumption. All data lives on local disk or user-controlled SQLite, no cloud vector databases, no API keys, no network calls.
 
 ---
 
@@ -437,12 +435,6 @@ python benchmark/generate_html_report.py \
 python benchmark/generate_comparison_report.py
 ```
 
-Regenerate the interactive comparison dashboard locally:
-
-```bash
-python benchmark/generate_comparison_report.py
-# → benchmark-comparison-report.html (gitignored; not required to clone)
-```
 
 Published evidence uses static chart images in `docs/images/` plus aggregate summaries in `benchmark/run_summary_*.json`. Full 150-run reproduction is optional — see [Running a Full Benchmark Suite](#running-a-full-benchmark-suite).
 
