@@ -4,6 +4,8 @@
 
 Context Bucket is a zero-dependency-on-external-services memory layer that ingests text and structured data, indexes it with pluggable embedding backends, retrieves relevant chunks via a hybrid semantic + lexical + keyword scoring pipeline, and assembles token-budgeted context blocks ready for downstream model consumption. All data lives on local disk or user-controlled SQLite, no cloud vector databases, no API keys, no network calls.
 
+![Benchmark Comparison Dashboard](docs/images/dashboard_comparison.png)
+
 ---
 
 ## Table of Contents
@@ -495,20 +497,21 @@ Both variants exhibit similar wall-clock runtimes (~7-10s for trivial/easy tiers
 
 ### Install
 
+**From a release tag (recommended for users):**
+
 ```bash
-# Clone the repository
+pip install "context-bucket @ git+https://github.com/crackdevbuild/context-bucket@v0.2.0"
+```
+
+**From a clone (recommended for development):**
+
+```bash
 git clone https://github.com/crackdevbuild/context-bucket.git
 cd context-bucket
-
-# Create virtual environment
 python3 -m venv .venv
 source .venv/bin/activate
-
-# Install in editable mode
 pip install -e .
-
-# Install with dev dependencies (pytest)
-pip install -e '.[dev]'
+pip install -e '.[dev]'   # includes pytest
 ```
 
 ### Verify Installation
